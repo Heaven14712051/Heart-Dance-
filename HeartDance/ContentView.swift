@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var monitor = HeartRateMonitor()
     @StateObject private var coach = VoiceCoach()
+    @State private var liveActivity = LiveActivityController()
 
     @AppStorage("lowBPM") private var lowBPM = 120
     @AppStorage("highBPM") private var highBPM = 130
@@ -71,6 +72,7 @@ struct ContentView: View {
         .onAppear {
             syncTexts()
             monitor.onHeartRate = { bpm in
+                liveActivity.update(bpm: bpm, low: lowBPM, high: highBPM)
                 coach.evaluate(
                     bpm: bpm,
                     low: lowBPM,
@@ -83,8 +85,11 @@ struct ContentView: View {
         .onChange(of: focusedField) { oldValue, _ in
             if let oldValue { commit(oldValue) }
         }
-        .onChange(of: lowBPM) { _, _ in syncTexts() }
-        .onChange(of: highBPM) { _, _ in syncTexts() }
+        .onChange(of: monitor.state) { _, newState in
+            if case .failed = newState { liveActivity.end() }
+        }
+        .onChange(of: lowBPM) { _, _ in rangeChanged() }
+        .onChange(of: highBPM) { _, _ in rangeChanged() }
     }
 
     // MARK: - Eingabe
@@ -133,6 +138,11 @@ struct ContentView: View {
         syncTexts()
     }
 
+    private func rangeChanged() {
+        syncTexts()
+        liveActivity.update(bpm: monitor.heartRate, low: lowBPM, high: highBPM)
+    }
+
     private func syncTexts() {
         if focusedField != .low { lowText = String(lowBPM) }
         if focusedField != .high { highText = String(highBPM) }
@@ -167,11 +177,13 @@ struct ContentView: View {
             focusedField = nil
             Task {
                 if monitor.isActive {
+                    liveActivity.end()
                     await monitor.stop()
                 } else {
                     coach.reset()
                     await monitor.start()
                     if monitor.state == .running {
+                        liveActivity.start(low: lowBPM, high: highBPM)
                         // Erste Ansage im Vordergrund – bereitet die Audio-Ausgabe vor.
                         coach.speak("Los geht's")
                     }

@@ -6,6 +6,8 @@
 	<string>Heart Dance liest deinen Puls von den AirPods, um dir „Schneller“ oder „Langsamer“ anzusagen.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Heart Dance speichert deine Session als Training in Health.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

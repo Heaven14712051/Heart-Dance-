@@ -16,7 +16,9 @@ Im Zielbereich bleibt es still.
 1. Repo klonen und `HeartDance.xcodeproj` in Xcode öffnen.
 2. Target **HeartDance** → *Signing & Capabilities*:
    - Unter *Team* deine Apple-ID wählen.
-   - *Bundle Identifier* auf etwas Eigenes ändern, z. B. `de.deinname.HeartDance`.
+   - Dasselbe für das Target **HeartDanceLiveActivity**.
+   - Bundle Identifier: App `de.moien.HeartDance`, Erweiterung `de.moien.HeartDance.LiveActivity`
+     (die Erweiterung muss immer mit dem Identifier der App beginnen).
 3. iPhone per Kabel anschließen und oben als Ziel auswählen. Auf dem iPhone den
    **Entwicklermodus** aktivieren (Einstellungen → Datenschutz & Sicherheit).
 4. ▶︎ (Run) drücken.
@@ -41,5 +43,8 @@ Im Zielbereich bleibt es still.
 | `HeartDance/HeartRateMonitor.swift` | Startet die HealthKit-Workout-Session (`HKWorkoutSession`, ab iOS 26 auf dem iPhone) und liefert den Puls live |
 | `HeartDance/VoiceCoach.swift` | Sprachansage „Schneller“ / „Langsamer“, stellt Musik dabei kurz leiser |
 | `HeartDance/ContentView.swift` | Oberfläche: Puls, Zielbereich, Start/Stopp |
+| `HeartDance/LiveActivityController.swift` | Startet/aktualisiert die Live-Aktivität auf dem Sperrbildschirm |
+| `HeartDanceLiveActivity/` | Widget-Erweiterung: Aussehen der Live-Aktivität |
+| `Shared/` | Daten, die App und Erweiterung gemeinsam nutzen |
 | `Config/Info.plist` | Health-Texte und Hintergrundmodi |
 | `Config/HeartDance.entitlements` | HealthKit-Berechtigung |
