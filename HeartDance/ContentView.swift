@@ -86,7 +86,10 @@ struct ContentView: View {
             if let oldValue { commit(oldValue) }
         }
         .onChange(of: monitor.state) { _, newState in
-            if case .failed = newState { liveActivity.end() }
+            if case .failed = newState {
+                liveActivity.end()
+                coach.endSession()
+            }
         }
         .onChange(of: lowBPM) { _, _ in rangeChanged() }
         .onChange(of: highBPM) { _, _ in rangeChanged() }
@@ -178,12 +181,14 @@ struct ContentView: View {
             Task {
                 if monitor.isActive {
                     liveActivity.end()
+                    coach.endSession()
                     await monitor.stop()
                 } else {
                     coach.reset()
                     await monitor.start()
                     if monitor.state == .running {
                         liveActivity.start(low: lowBPM, high: highBPM)
+                        coach.beginSession()
                         // Erste Ansage im Vordergrund – bereitet die Audio-Ausgabe vor.
                         coach.speak("Los geht's")
                     }
