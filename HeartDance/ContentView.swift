@@ -2,11 +2,19 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var monitor = HeartRateMonitor()
-    @State private var coach = VoiceCoach()
+    @StateObject private var coach = VoiceCoach()
 
     @AppStorage("lowBPM") private var lowBPM = 120
     @AppStorage("highBPM") private var highBPM = 130
     @AppStorage("announceInterval") private var announceInterval = 10
+
+    private enum Field { case low, high }
+    @FocusState private var focusedField: Field?
+    @State private var lowText = ""
+    @State private var highText = ""
+    @State private var inputError: String?
+
+    private let allowedRange = 40...220
 
     var body: some View {
         NavigationStack {
@@ -15,14 +23,32 @@ struct ContentView: View {
                     heartRateDisplay
                 }
 
-                Section("Zielbereich") {
-                    Stepper("Minimum: \(lowBPM) bpm", value: $lowBPM, in: 40...(highBPM - 1), step: 1)
-                    Stepper("Maximum: \(highBPM) bpm", value: $highBPM, in: (lowBPM + 1)...220, step: 1)
+                Section {
+                    bpmRow(title: "Minimum", text: $lowText, field: .low,
+                           value: $lowBPM, range: allowedRange.lowerBound...(highBPM - 1))
+                    bpmRow(title: "Maximum", text: $highText, field: .high,
+                           value: $highBPM, range: (lowBPM + 1)...allowedRange.upperBound)
+                } header: {
+                    Text("Zielbereich")
+                } footer: {
+                    if let inputError {
+                        Text(inputError).foregroundStyle(.red)
+                    } else {
+                        Text("Zahl antippen zum Eintippen, oder mit +/− ändern.")
+                    }
                 }
 
                 Section {
                     Stepper("Höchstens alle \(announceInterval) s", value: $announceInterval, in: 3...60, step: 1)
                     Button("Stimme testen") { coach.speak("Schneller") }
+                    if let text = coach.lastAnnouncement, let date = coach.lastAnnouncementDate {
+                        LabeledContent("Letzte Ansage") {
+                            Text("„\(text)“ um \(date.formatted(date: .omitted, time: .standard))")
+                        }
+                    }
+                    if let error = coach.lastError {
+                        Text(error).foregroundStyle(.red).font(.footnote)
+                    }
                 } header: {
                     Text("Ansagen")
                 } footer: {
@@ -34,8 +60,16 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Heart Dance")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fertig") { focusedField = nil }
+                        .fontWeight(.semibold)
+                }
+            }
         }
         .onAppear {
+            syncTexts()
             monitor.onHeartRate = { bpm in
                 coach.evaluate(
                     bpm: bpm,
@@ -45,7 +79,66 @@ struct ContentView: View {
                 )
             }
         }
+        // Verlässt du ein Feld (Fertig, anderes Feld antippen), wird die Eingabe übernommen.
+        .onChange(of: focusedField) { oldValue, _ in
+            if let oldValue { commit(oldValue) }
+        }
+        .onChange(of: lowBPM) { _, _ in syncTexts() }
+        .onChange(of: highBPM) { _, _ in syncTexts() }
     }
+
+    // MARK: - Eingabe
+
+    private func bpmRow(title: String, text: Binding<String>, field: Field,
+                        value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("", text: text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 56)
+                .focused($focusedField, equals: field)
+            Text("bpm").foregroundStyle(.secondary)
+            Stepper(title, value: value, in: range)
+                .labelsHidden()
+        }
+    }
+
+    private func commit(_ field: Field) {
+        let raw = (field == .low ? lowText : highText).trimmingCharacters(in: .whitespaces)
+        guard let number = Int(raw), allowedRange.contains(number) else {
+            inputError = "Bitte eine Zahl zwischen \(allowedRange.lowerBound) und \(allowedRange.upperBound) eingeben."
+            syncTexts()
+            return
+        }
+        switch field {
+        case .low:
+            guard number < highBPM else {
+                inputError = "Das Minimum muss kleiner als das Maximum (\(highBPM)) sein."
+                syncTexts()
+                return
+            }
+            lowBPM = number
+        case .high:
+            guard number > lowBPM else {
+                inputError = "Das Maximum muss größer als das Minimum (\(lowBPM)) sein."
+                syncTexts()
+                return
+            }
+            highBPM = number
+        }
+        inputError = nil
+        syncTexts()
+    }
+
+    private func syncTexts() {
+        if focusedField != .low { lowText = String(lowBPM) }
+        if focusedField != .high { highText = String(highBPM) }
+    }
+
+    // MARK: - Anzeige
 
     private var heartRateDisplay: some View {
         VStack(spacing: 8) {
@@ -71,12 +164,17 @@ struct ContentView: View {
 
     private var startStopButton: some View {
         Button {
+            focusedField = nil
             Task {
                 if monitor.isActive {
                     await monitor.stop()
                 } else {
                     coach.reset()
                     await monitor.start()
+                    if monitor.state == .running {
+                        // Erste Ansage im Vordergrund – bereitet die Audio-Ausgabe vor.
+                        coach.speak("Los geht's")
+                    }
                 }
             }
         } label: {

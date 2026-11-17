@@ -3,7 +3,12 @@ import AVFoundation
 /// Sagt "Schneller" oder "Langsamer" über die aktuelle Audio-Ausgabe (AirPods).
 /// Laufende Musik wird dabei kurz leiser gestellt.
 @MainActor
-final class VoiceCoach: NSObject {
+final class VoiceCoach: NSObject, ObservableObject {
+    /// Für die Anzeige in der App: was zuletzt gesagt wurde bzw. was schiefging.
+    @Published private(set) var lastAnnouncement: String?
+    @Published private(set) var lastAnnouncementDate: Date?
+    @Published private(set) var lastError: String?
+
     private let synthesizer = AVSpeechSynthesizer()
     private var lastSpoken: Date = .distantPast
 
@@ -24,22 +29,37 @@ final class VoiceCoach: NSObject {
         }
 
         let now = Date()
-        guard now.timeIntervalSince(lastSpoken) >= interval, !synthesizer.isSpeaking else { return }
+        guard now.timeIntervalSince(lastSpoken) >= interval else { return }
         lastSpoken = now
         speak(text)
     }
 
     func reset() {
         lastSpoken = .distantPast
+        lastAnnouncement = nil
+        lastAnnouncementDate = nil
+        lastError = nil
     }
 
     func speak(_ text: String) {
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers])
+            // .duckOthers macht die Session "mischbar" – nur so darf sie auch im
+            // Hintergrund (Bildschirm gesperrt) aktiviert werden.
+            try audioSession.setCategory(
+                .playback,
+                mode: .voicePrompt,
+                options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers]
+            )
             try audioSession.setActive(true)
+            lastError = nil
         } catch {
-            print("Audio-Session-Fehler: \(error)")
+            lastError = "Audio: \(error.localizedDescription)"
+        }
+
+        // Falls eine alte Ansage hängen geblieben ist, nicht ewig blockieren.
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
         }
 
         let utterance = AVSpeechUtterance(string: text)
@@ -47,6 +67,9 @@ final class VoiceCoach: NSObject {
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.volume = 1.0
         synthesizer.speak(utterance)
+
+        lastAnnouncement = text
+        lastAnnouncementDate = Date()
     }
 }
 
