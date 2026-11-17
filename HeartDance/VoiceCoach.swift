@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 
 /// Sagt "Schneller" oder "Langsamer" über die aktuelle Audio-Ausgabe (AirPods).
 ///
@@ -16,6 +17,12 @@ final class VoiceCoach: NSObject, ObservableObject {
     @Published private(set) var lastAnnouncementDate: Date?
     @Published private(set) var lastError: String?
 
+    /// true = Ansagen bei gesperrtem Bildschirm als Mitteilung, die Siri vorliest.
+    var useSiri = false {
+        didSet { applyMode() }
+    }
+    private let announcer = NotificationAnnouncer()
+
     private static let phrases = ["Schneller", "Langsamer", "Los geht's"]
     private let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 22_050, channels: 1)!
 
@@ -29,6 +36,9 @@ final class VoiceCoach: NSObject, ObservableObject {
 
     private var lastSpoken: Date = .distantPast
     private var sessionActive = false
+
+    /// Der eigene Audio-Player läuft nur im Modus "App-Stimme" dauerhaft mit.
+    private var engineShouldRun: Bool { sessionActive && !useSiri }
 
     override init() {
         super.init()
@@ -52,12 +62,29 @@ final class VoiceCoach: NSObject, ObservableObject {
     /// Beim Tippen auf Start aufrufen – also solange die App im Vordergrund ist.
     func beginSession() {
         sessionActive = true
-        startAudio()
+        if useSiri {
+            Task {
+                if !(await announcer.requestAuthorization()) {
+                    lastError = "Mitteilungen sind für Heart Dance ausgeschaltet – Siri kann nichts vorlesen."
+                }
+            }
+        } else {
+            startAudio()
+        }
     }
 
     func endSession() {
         sessionActive = false
         stopAudio()
+        announcer.clear()
+    }
+
+    private func applyMode() {
+        if engineShouldRun {
+            startAudio()
+        } else if sessionActive, engine.isRunning {
+            stopAudio()
+        }
     }
 
     private func startAudio() {
@@ -89,14 +116,14 @@ final class VoiceCoach: NSObject, ObservableObject {
               AVAudioSession.InterruptionType(rawValue: raw) == .ended
         else { return }
         Task { @MainActor in
-            if self.sessionActive { self.startAudio() }
+            if self.engineShouldRun { self.startAudio() }
         }
     }
 
     /// Z. B. AirPods raus/rein: Die Audio-Engine stoppt dann und muss neu starten.
     @objc nonisolated private func handleEngineConfigurationChange(_ notification: Notification) {
         Task { @MainActor in
-            if self.sessionActive { self.startAudio() }
+            if self.engineShouldRun { self.startAudio() }
         }
     }
 
@@ -130,6 +157,13 @@ final class VoiceCoach: NSObject, ObservableObject {
         lastAnnouncement = text
         lastAnnouncementDate = Date()
 
+        if useSiri, UIApplication.shared.applicationState != .active {
+            announcer.post(text) { [weak self] message in
+                self?.record("Mitteilung", message)
+            }
+            return
+        }
+
         guard let buffer = rendered[text] else {
             // Schnipsel noch nicht fertig (nur direkt nach App-Start möglich):
             // direkt sprechen – klappt im Vordergrund.
@@ -141,12 +175,12 @@ final class VoiceCoach: NSObject, ObservableObject {
             startAudio()
         }
 
-        let keepRunning = sessionActive
+        let keepRunning = engineShouldRun
         player.scheduleBuffer(buffer, at: nil, options: .interrupts) { [weak self] in
             // Für "Stimme testen" ohne laufende Session: Audio danach wieder abgeben.
             guard !keepRunning else { return }
             Task { @MainActor in
-                guard let self, !self.sessionActive else { return }
+                guard let self, !self.engineShouldRun else { return }
                 self.stopAudio()
             }
         }
@@ -163,8 +197,12 @@ final class VoiceCoach: NSObject, ObservableObject {
     }
 
     private func record(_ step: String, _ error: Error) {
+        record(step, error.localizedDescription)
+    }
+
+    private func record(_ step: String, _ message: String) {
         let time = Date().formatted(date: .omitted, time: .standard)
-        lastError = "\(time) – \(step): \(error.localizedDescription)"
+        lastError = "\(time) – \(step): \(message)"
     }
 
     // MARK: - Tonschnipsel erzeugen

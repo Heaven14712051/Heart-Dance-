@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage("lowBPM") private var lowBPM = 120
     @AppStorage("highBPM") private var highBPM = 130
     @AppStorage("announceInterval") private var announceInterval = 10
+    @AppStorage("useSiri") private var useSiri = false
 
     private enum Field { case low, high }
     @FocusState private var focusedField: Field?
@@ -40,6 +41,11 @@ struct ContentView: View {
                 }
 
                 Section {
+                    Picker("Ansage über", selection: $useSiri) {
+                        Text("App-Stimme").tag(false)
+                        Text("Siri").tag(true)
+                    }
+                    .pickerStyle(.segmented)
                     Stepper("Höchstens alle \(announceInterval) s", value: $announceInterval, in: 3...60, step: 1)
                     Button("Stimme testen") { coach.speak("Schneller") }
                     if let text = coach.lastAnnouncement, let date = coach.lastAnnouncementDate {
@@ -53,7 +59,11 @@ struct ContentView: View {
                 } header: {
                     Text("Ansagen")
                 } footer: {
-                    Text("Liegt dein Puls unter dem Minimum, hörst du „Schneller“, darüber „Langsamer“. Im Zielbereich bleibt es still.")
+                    if useSiri {
+                        Text("Siri liest die Ansagen bei gesperrtem iPhone vor und stellt die Musik dabei leiser. Dafür einschalten: Einstellungen → Mitteilungen → Mitteilungen ankündigen → Heart Dance. Ist die App offen, spricht die App-Stimme.")
+                    } else {
+                        Text("Liegt dein Puls unter dem Minimum, hörst du „Schneller“, darüber „Langsamer“. Im Zielbereich bleibt es still. Musik läuft dabei in voller Lautstärke weiter.")
+                    }
                 }
 
                 Section {
@@ -70,6 +80,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            coach.useSiri = useSiri
             syncTexts()
             monitor.onHeartRate = { bpm in
                 liveActivity.update(bpm: bpm, low: lowBPM, high: highBPM)
@@ -91,6 +102,7 @@ struct ContentView: View {
                 coach.endSession()
             }
         }
+        .onChange(of: useSiri) { _, newValue in coach.useSiri = newValue }
         .onChange(of: lowBPM) { _, _ in rangeChanged() }
         .onChange(of: highBPM) { _, _ in rangeChanged() }
     }
